@@ -7,6 +7,8 @@ const ACTIONS = {
   delEntry(el){ deleteEntry(el.dataset.id); },
   pickCamera(){ $('#fileCam').value = ''; $('#fileCam').click(); },
   pickUpload(){ $('#fileUp').value = ''; $('#fileUp').click(); },
+  scanBarcode: openBarcodeScanner,
+  lookupBarcode: lookupBarcode,
   calcProfile, logEntry, resetForm,
   quickPick(el){ const f = S.foods.find(x => x.id === el.dataset.id); if (f){ fillForm(f); renderAdd(); $('#fQty').focus(); } },
   newFood(){ openSheet(null); },

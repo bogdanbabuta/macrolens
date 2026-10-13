@@ -171,7 +171,11 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .switch input:checked + i::after{transform:translateX(20px)}
 
 /* ---------- scanner ---------- */
-.scan-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.scan-btns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.scan-btns .btn{padding:10px 8px;font-size:14px}
+.scan-btns .btn svg{width:20px;height:20px}
+#barcodeReader{width:100%;min-height:1px;overflow:hidden;border-radius:14px;background:#000}
+#barcodeReader video{border-radius:14px}
 .preview{margin-top:12px;border-radius:14px;overflow:hidden;background:#000;position:relative;max-height:220px}
 .preview img{display:block;width:100%;max-height:220px;object-fit:contain;background:#000}
 .progress{margin-top:12px}
@@ -321,6 +325,10 @@ details.raw pre{white-space:pre-wrap;word-break:break-word;background:var(--card
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-8 8"/></svg>
         Upload
       </button>
+      <button class="btn secondary" data-action="scanBarcode">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5v14M7 5v14M10 5v14M14 5v14M17 5v14M20 5v14"/></svg>
+        Barcode
+      </button>
     </div>
     <div class="field" style="margin:12px 0 0">
       <label for="scanLang">Label language</label>
@@ -363,7 +371,7 @@ details.raw pre{white-space:pre-wrap;word-break:break-word;background:var(--card
       <input type="text" id="fName" placeholder="e.g. Greek yogurt" autocomplete="off" autocapitalize="sentences" enterkeyhint="done">
     </div>
     <div class="field">
-      <div class="lab">Label values are per…</div>
+      <div class="lab">Nutrition values are per…</div>
       <div class="seg" data-seg="unit"><button data-val="g" class="on">100 g</button><button data-val="ml">100 ml</button></div>
     </div>
 
@@ -523,6 +531,22 @@ details.raw pre{white-space:pre-wrap;word-break:break-word;background:var(--card
     <button class="btn primary" data-action="saveWater">Save</button>
     <button class="btn secondary" data-action="closeSheet">Cancel</button>
   </div>
+</div>
+
+<div class="sheet" id="barcodeSheet" role="dialog" aria-modal="true" aria-labelledby="barcodeTitle">
+  <div class="grab"></div>
+  <h3 id="barcodeTitle">Scan barcode</h3>
+  <div id="barcodeReader" hidden></div>
+  <p class="hint" id="barcodeStatus" style="margin-top:0">Allow camera access to scan a product barcode, or enter the barcode number below.</p>
+  <div class="field" style="margin-top:12px">
+    <label for="barcodeInput">Barcode number</label>
+    <input type="text" id="barcodeInput" inputmode="numeric" autocomplete="off" placeholder="e.g. 3017620422003">
+  </div>
+  <div class="btns">
+    <button class="btn primary" data-action="lookupBarcode">Look up product</button>
+    <button class="btn secondary" data-action="closeSheet">Cancel</button>
+  </div>
+  <p class="hint">Product details come from Open Food Facts and may be incomplete or user-submitted. Check the values against the package before logging.</p>
 </div>
 
 <script src="js/core.js"></script>

@@ -256,7 +256,12 @@ function openSheet(id){
   $('#sPortionUnit').textContent = getSeg('sunit');
   openSheetEl('foodSheet');
 }
-function closeSheet(){ $('#backdrop').classList.remove('show'); $$('.sheet').forEach(x => x.classList.remove('show')); document.activeElement && document.activeElement.blur(); }
+function closeSheet(){
+  $('#backdrop').classList.remove('show');
+  $$('.sheet').forEach(x => x.classList.remove('show'));
+  document.activeElement && document.activeElement.blur();
+  if (typeof stopBarcodeScanner === 'function') stopBarcodeScanner().catch(err => console.error('Could not stop barcode scanner', err));
+}
 function saveFoodSheet(){
   const name = $('#sName').value.trim();
   if (!name) return toast('Give the food a name');
@@ -322,4 +327,3 @@ function saveTargetEdits(){
   });
   saveProfile();
 }
-

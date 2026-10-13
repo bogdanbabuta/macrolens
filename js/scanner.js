@@ -468,6 +468,173 @@ function applyScan(r){
   $('#detailsCard').scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
+/* ---------------- barcode lookup ---------------- */
+const BARCODE_LIBRARY_URL = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+const FOOD_FACTS_URL = 'https://world.openfoodfacts.org/api/v2/product/';
+let barcodeLibraryPromise = null;
+let barcodeScanner = null;
+let barcodeStartPromise = null;
+let barcodeStopRequested = false;
+let barcodeHandling = false;
+
+function setBarcodeStatus(message, type){
+  const status = $('#barcodeStatus');
+  status.textContent = message;
+  status.classList.toggle('err', type === 'err');
+  status.classList.toggle('ok', type === 'ok');
+}
+
+function loadBarcodeLibrary(){
+  if (window.Html5Qrcode) return Promise.resolve(window.Html5Qrcode);
+  if (barcodeLibraryPromise) return barcodeLibraryPromise;
+  barcodeLibraryPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = BARCODE_LIBRARY_URL;
+    script.async = true;
+    script.onload = () => window.Html5Qrcode
+      ? resolve(window.Html5Qrcode)
+      : reject(new Error('Barcode scanning library did not initialize.'));
+    script.onerror = () => reject(new Error('Could not load the barcode scanner. You can still enter the barcode number manually.'));
+    document.head.appendChild(script);
+  }).catch(err => {
+    barcodeLibraryPromise = null;
+    throw err;
+  });
+  return barcodeLibraryPromise;
+}
+
+function openBarcodeScanner(){
+  barcodeStopRequested = false;
+  $('#barcodeInput').value = '';
+  setBarcodeStatus('Allow camera access to scan a product barcode, or enter the barcode number below.');
+  openSheetEl('barcodeSheet');
+  if (!window.isSecureContext){
+    setBarcodeStatus('Camera scanning requires HTTPS or localhost. You can still look up a barcode manually.', 'err');
+    return;
+  }
+  startBarcodeScanner();
+}
+
+async function startBarcodeScanner(){
+  const reader = $('#barcodeReader');
+  reader.hidden = false;
+  setBarcodeStatus('Loading barcode scanner…');
+  try {
+    const Html5Qrcode = await loadBarcodeLibrary();
+    if (!$('#barcodeSheet').classList.contains('show')) return;
+    const formats = window.Html5QrcodeSupportedFormats;
+    const scanner = new Html5Qrcode('barcodeReader', {
+      formatsToSupport: formats ? [
+        formats.EAN_13, formats.EAN_8, formats.UPC_A, formats.UPC_E, formats.UPC_EAN_EXTENSION
+      ].filter(Number.isInteger) : undefined,
+      verbose: false
+    });
+    barcodeScanner = scanner;
+    barcodeStartPromise = scanner.start(
+      { facingMode:'environment' },
+      { fps:10, qrbox:{ width:280, height:140 } },
+      code => {
+        if (barcodeHandling) return;
+        barcodeHandling = true;
+        $('#barcodeInput').value = code;
+        lookupBarcode().finally(() => { barcodeHandling = false; });
+      },
+      () => {}
+    );
+    await barcodeStartPromise;
+    barcodeStartPromise = null;
+    if (barcodeStopRequested || !$('#barcodeSheet').classList.contains('show')){
+      await stopBarcodeScanner();
+      return;
+    }
+    setBarcodeStatus('Point the camera at the product barcode.');
+  } catch (err){
+    barcodeStartPromise = null;
+    console.error(err);
+    if ($('#barcodeSheet').classList.contains('show')){
+      reader.hidden = true;
+      setBarcodeStatus((err && err.message) || 'Could not start the camera. Enter the barcode number manually.', 'err');
+    }
+    if (barcodeScanner) await stopBarcodeScanner();
+  }
+}
+
+async function stopBarcodeScanner(){
+  barcodeStopRequested = true;
+  if (barcodeStartPromise) await barcodeStartPromise.catch(() => {});
+  if (!barcodeScanner) return;
+  const scanner = barcodeScanner;
+  barcodeScanner = null;
+  try {
+    if (scanner.getState() === 2) await scanner.stop();
+  } finally {
+    scanner.clear();
+    $('#barcodeReader').hidden = true;
+  }
+}
+
+function barcodeNumber(){
+  const value = $('#barcodeInput').value.trim();
+  if (!/^\d{8,14}$/.test(value)) throw new Error('Enter a valid barcode containing 8 to 14 digits.');
+  return value;
+}
+
+function nutrientValue(nutriments, ...keys){
+  for (const key of keys){
+    const value = Number(nutriments[key]);
+    if (nutriments[key] != null && Number.isFinite(value) && value >= 0) return value;
+  }
+  return null;
+}
+
+async function lookupBarcode(){
+  const button = $('[data-action="lookupBarcode"]');
+  button.disabled = true;
+  try {
+    const code = barcodeNumber();
+    await stopBarcodeScanner();
+    setBarcodeStatus('Looking up product…');
+    const fields = 'code,product_name,product_name_en,brands,nutrition_data_per,nutriments';
+    const response = await fetch(`${FOOD_FACTS_URL}${encodeURIComponent(code)}.json?fields=${fields}`);
+    if (!response.ok) throw new Error(`Product lookup failed (HTTP ${response.status}). Please try again.`);
+    const data = await response.json();
+    if (data.status !== 1 || !data.product) throw new Error('Product not found in Open Food Facts. You can enter its values manually.');
+
+    const product = data.product;
+    const name = (product.product_name || product.product_name_en || '').trim();
+    if (!name) throw new Error('This product has no name in Open Food Facts. Enter its details manually.');
+    const nutriments = product.nutriments || {};
+    const perMl = product.nutrition_data_per === '100ml';
+    const suffix = perMl ? '100ml' : '100g';
+    const parsed = {
+      kcal:nutrientValue(nutriments, `energy-kcal_${suffix}`),
+      p:nutrientValue(nutriments, `proteins_${suffix}`),
+      c:nutrientValue(nutriments, `carbohydrates_${suffix}`),
+      f:nutrientValue(nutriments, `fat_${suffix}`),
+      unit:perMl ? 'ml' : 'g',
+      notes:[`Values from Open Food Facts per 100 ${perMl ? 'ml' : 'g'}; verify them against the package.`]
+    };
+    parsed.found = ['kcal','p','c','f'].filter(key => parsed[key] != null).length;
+    if (!parsed.found) throw new Error('No nutrition values are available for this product. Enter them manually.');
+
+    await stopBarcodeScanner();
+    const e = formEls();
+    e.name.value = name;
+    e.kcal.value = '';
+    e.p.value = '';
+    e.c.value = '';
+    e.f.value = '';
+    setBarcodeStatus(`Found ${name}${product.brands ? ` (${product.brands})` : ''}.`, 'ok');
+    closeSheet();
+    applyScan(parsed);
+  } catch (err){
+    console.error(err);
+    setBarcodeStatus(err && err.message ? err.message : 'Product lookup failed. Please try again.', 'err');
+  } finally {
+    button.disabled = false;
+  }
+}
+
 /* =====================================================================
    FOODS
    ===================================================================== */
