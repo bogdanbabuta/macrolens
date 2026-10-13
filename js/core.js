@@ -40,7 +40,7 @@ function dayLabel(k){
 
 /* ---------------- state ---------------- */
 const S = {
-  profile: null, logs: {}, foods: [], water: {}, waterCfg: {}, scanLang: 'ron+eng',
+  profile: null, logs: {}, foods: [], water: {}, waterCfg: {}, scanLang: 'ron',
   date: todayKey(), lastToday: todayKey(),
   view: 'today', editingFood: null, currentFoodId: null, undo: null
 };

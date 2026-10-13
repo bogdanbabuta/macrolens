@@ -6,7 +6,7 @@ async function prepareImage(file){
   try {
     const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('Could not open that image')); i.src = url; });
     const w = img.naturalWidth, h = img.naturalHeight, big = Math.max(w, h);
-    const scale = big > 2000 ? 2000 / big : big < 1000 ? 1400 / big : 1;
+    const scale = big > 2600 ? 2600 / big : big < 1200 ? 1800 / big : 1;
     const cv = document.createElement('canvas');
     cv.width = Math.round(w * scale); cv.height = Math.round(h * scale);
     const ctx = cv.getContext('2d', { willReadFrequently:true });
@@ -159,6 +159,72 @@ function resetScanUI(){
   setStatus('Photograph the table that lists values <b>per 100 g / 100 ml</b>. Fill the frame, keep it flat and well lit.', '', true);
 }
 
+function zoomNutritionRow(image, box){
+  const rowHeight = Math.max(1, box.y1 - box.y0);
+  const height = Math.min(image.height, Math.max(44, Math.ceil(rowHeight * 3.2)));
+  const top = clamp(Math.round((box.y0 + box.y1) / 2 - height * 0.42), 0, image.height - height);
+  const scale = Math.min(4, 6000 / image.width, 180 / height);
+  const zoom = document.createElement('canvas');
+  zoom.width = Math.max(1, Math.round(image.width * scale));
+  zoom.height = Math.max(1, Math.round(height * scale));
+  const ctx = zoom.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(image, 0, top, image.width, height, 0, 0, zoom.width, zoom.height);
+  return zoom;
+}
+
+function zoomImageSections(image){
+  const width = Math.ceil(image.width * 0.56), height = Math.ceil(image.height * 0.56);
+  const regions = [];
+  for (const y of [0, image.height - height]){
+    for (const x of [0, image.width - width]){
+      const scale = Math.min(3, 1800 / Math.max(width, height));
+      const zoom = document.createElement('canvas');
+      zoom.width = Math.max(1, Math.round(width * scale));
+      zoom.height = Math.max(1, Math.round(height * scale));
+      const ctx = zoom.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(image, x, y, width, height, 0, 0, zoom.width, zoom.height);
+      regions.push(zoom);
+    }
+  }
+  return regions;
+}
+
+function nutritionRows(results, image){
+  const rows = new Map();
+  for (const result of results){
+    if (result.image !== image) continue;
+    for (const line of result.data.lines || []){
+      const text = strip(line.text || '');
+      const skip = SKIP_RE.exec(text);
+      let field = null;
+      for (const key of ['p','c','f']){
+        const match = KEY_RE[key].exec(text);
+        if (match && (!skip || skip.index > match.index)){ field = key; break; }
+      }
+      if (!field && ENERGY_RE.test(text)) field = 'kcal';
+      const box = line.bbox;
+      if (!field || !box || ![box.x0,box.y0,box.x1,box.y1].every(Number.isFinite)) continue;
+      const height = box.y1 - box.y0;
+      if (height <= 0 || box.y0 < 0 || box.y1 > image.height) continue;
+      const previous = rows.get(field);
+      if (!previous || height > previous.height) rows.set(field, { field, box, height });
+    }
+  }
+  return Array.from(rows.values());
+}
+
+function nutritionScore(result){
+  let score = result.found * 10;
+  if (result.kcal > 0 && result.p != null && result.c != null && result.f != null){
+    const difference = Math.abs(result.kcal - (4 * result.p + 4 * result.c + 9 * result.f)) / result.kcal;
+    if (difference < 0.15) score += 3;
+    else if (difference > 0.35) score -= 3;
+  }
+  return score;
+}
+
 async function scanFile(file){
   if (!file || scanBusy) return;
   scanBusy = true;
@@ -172,33 +238,62 @@ async function scanFile(file){
     const cv = await prepareImage(file);
     setStatus('Loading OCR engine… (the first scan in each language downloads a few MB)');
     const T = await loadTesseract();
-    let phase = 0;                                           // 0 = pass 1, 1 = pass 2
-    // tesseract.js can fail inside its worker without rejecting, so route its errors + a watchdog into one promise
+    // Tesseract may fail inside its worker without rejecting, so route worker errors and the watchdog through one promise.
     let fail; const failed = new Promise((_, rej) => { fail = rej; }); failed.catch(() => {});
     const watchdog = setTimeout(() => fail(new Error('The scan took too long')), 180000);
     const guard = p => Promise.race([p, failed]);
-    worker = await guard(T.createWorker(S.scanLang, 1, {
-      errorHandler: e => fail(e instanceof Error ? e : new Error(String(e && e.message || e))),
-      logger: m => {
-        if (!m || !m.status) return;
-        if (m.status === 'recognizing text'){ setProgress(0.15 + (phase + m.progress) * 0.42); setStatus(`Reading label… ${Math.round(m.progress * 100)}%`); }
-        else if (/language/.test(m.status)){ setProgress(0.03 + m.progress * 0.1); setStatus('Downloading language data (first time only)…'); }
-        else if (/core/.test(m.status)) setStatus('Loading OCR engine…');
-      }
-    }));
-
-    const pass = async psm => {
-      await guard(worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' }));
-      const { data } = await guard(worker.recognize(cv));
-      return { text: data.text || '', parsed: parseNutrition(data.text || '') };
-    };
     let best;
     try {
-      best = await pass('6');                                // single uniform block: best for tables
+      worker = await guard(T.createWorker(S.scanLang, 1, {
+        errorHandler: e => fail(e instanceof Error ? e : new Error(String(e && e.message || e))),
+        logger: m => {
+          if (!m || !m.status) return;
+          if (m.status === 'recognizing text'){ setProgress(0.12 + m.progress * 0.72); setStatus(`Reading label… ${Math.round(m.progress * 100)}%`); }
+          else if (/language/.test(m.status)){ setProgress(0.03 + m.progress * 0.08); setStatus('Downloading language data (first time only)…'); }
+          else if (/core/.test(m.status)) setStatus('Loading OCR engine…');
+        }
+      }));
+
+      const results = [];
+      const pass = async (image, psm) => {
+        await guard(worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' }));
+        const { data } = await guard(worker.recognize(image));
+        const text = data.text || '';
+        const result = { data, image, text, parsed:parseNutrition(text) };
+        results.push(result);
+        return result;
+      };
+
+      best = await pass(cv, '6');
       if (best.parsed.found < 4){
-        phase = 1;
-        const alt = await pass('4');                         // single column of variable sizes
-        if (alt.parsed.found > best.parsed.found) best = alt;
+        setStatus('Searching the label with an alternate layout…');
+        const alternate = await pass(cv, '4');
+        if (nutritionScore(alternate.parsed) > nutritionScore(best.parsed)) best = alternate;
+      }
+
+      if (best.parsed.found < 4){
+        const sections = zoomImageSections(cv);
+        for (let i = 0; i < sections.length && best.parsed.found < 4; i++){
+          setStatus(`Searching enlarged section ${i + 1} of ${sections.length}…`);
+          const section = await pass(sections[i], '6');
+          if (nutritionScore(section.parsed) > nutritionScore(best.parsed)) best = section;
+        }
+      }
+
+      const rows = nutritionRows(results, cv);
+      const focused = { ...best.parsed };
+      const zoomedText = [];
+      for (const row of rows){
+        setStatus(`Zooming in on ${row.field === 'kcal' ? 'calories' : row.field === 'p' ? 'protein' : row.field === 'c' ? 'carbohydrates' : 'fat'}…`);
+        const zoom = await pass(zoomNutritionRow(cv, row.box), '7');
+        zoomedText.push(zoom.text.trim());
+        if (zoom.parsed[row.field] != null) focused[row.field] = zoom.parsed[row.field];
+      }
+      focused.found = ['kcal','p','c','f'].filter(key => focused[key] != null).length;
+      if (nutritionScore(focused) >= nutritionScore(best.parsed)){
+        best = { ...best, parsed:focused, text:[best.text, ...zoomedText].filter(Boolean).join('\n\n') };
+      } else if (zoomedText.length){
+        best.text = [best.text, ...zoomedText].filter(Boolean).join('\n\n');
       }
     } finally { clearTimeout(watchdog); }
     setProgress(1);

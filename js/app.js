@@ -93,11 +93,13 @@ function init(){
   S.foods   = store.get(K.foods, []);
   S.water   = store.get(K.water, {});
   S.waterCfg = store.get(K.waterCfg, {});
-  S.scanLang = store.get(K.lang, 'ron+eng');
+  const savedLang = store.get(K.lang, 'ron');
   buildMacroRows();
   fillProfileForm();
+  const primaryLang = typeof savedLang === 'string' ? savedLang.split('+')[0] : 'ron';
+  S.scanLang = Array.from($('#scanLang').options).some(option => option.value === primaryLang) ? primaryLang : 'ron';
   $('#scanLang').value = S.scanLang;
-  if ($('#scanLang').value !== S.scanLang) { S.scanLang = 'ron+eng'; $('#scanLang').value = S.scanLang; }
+  store.set(K.lang, S.scanLang);
 
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
