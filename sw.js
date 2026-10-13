@@ -1,8 +1,16 @@
 // Optional: makes MacroLens open instantly and work offline (manual entry, custom foods, log).
 // Photo scanning still needs a connection the first time, to download the OCR engine.
-const CACHE = 'macrolens-v1';
+const CACHE = 'macrolens-v2';
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(['./', './index.html'])).catch(() => {}));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll([
+    './',
+    './index.html',
+    './js/core.js',
+    './js/ui.js',
+    './js/scanner.js',
+    './js/backup.js',
+    './js/app.js'
+  ])).catch(() => {}));
   self.skipWaiting();
 });
 self.addEventListener('activate', e => {
