@@ -135,6 +135,146 @@ function parseNutrition(raw){
   return out;
 }
 
+function parseNutritionTable(data, raw){
+  const out = parseNutrition(raw);
+  const words = (data.words || []).filter(word =>
+    word.text && word.bbox && [word.bbox.x0,word.bbox.y0,word.bbox.x1,word.bbox.y1].every(Number.isFinite) &&
+    word.bbox.x1 > word.bbox.x0 && word.bbox.y1 > word.bbox.y0
+  ).map(word => ({
+    text:word.text.trim(),
+    x0:word.bbox.x0, x1:word.bbox.x1, y0:word.bbox.y0, y1:word.bbox.y1,
+    confidence:Number.isFinite(word.confidence) ? word.confidence : 0
+  })).filter(word => word.text);
+  if (!words.length) return out;
+
+  words.sort((a, b) => (a.y0 + a.y1) - (b.y0 + b.y1) || a.x0 - b.x0);
+  const visualRows = [];
+  for (const word of words){
+    const center = (word.y0 + word.y1) / 2, height = word.y1 - word.y0;
+    let row = null, bestDistance = Infinity;
+    for (const candidate of visualRows){
+      const distance = Math.abs(center - candidate.center);
+      if (distance <= Math.max(5, Math.min(height, candidate.height) * 0.4)){
+        if (distance < bestDistance){ row = candidate; bestDistance = distance; }
+      }
+    }
+    if (!row){ visualRows.push({ center, height, words:[word] }); continue; }
+    row.words.push(word);
+    row.center = row.words.reduce((sum, item) => sum + (item.y0 + item.y1) / 2, 0) / row.words.length;
+    row.height = row.words.reduce((sum, item) => sum + item.y1 - item.y0, 0) / row.words.length;
+  }
+
+  const wordTable = [];
+  const valueTable = [];
+  for (const row of visualRows){
+    row.words.sort((a, b) => a.x0 - b.x0);
+    const text = strip(row.words.map(word => word.text).join(' '));
+    const spans = [];
+    let offset = 0;
+    let compactOffset = 0;
+    for (const word of row.words){
+      const start = offset;
+      offset += word.text.length;
+      const compactStart = compactOffset;
+      compactOffset += word.text.length;
+      spans.push({ word, start, end:offset, compactStart, compactEnd:compactOffset });
+      offset++;
+    }
+    const labels = [];
+    const skip = SKIP_RE.exec(text);
+    const compactText = text.replace(/\s+/g, '');
+    for (const field of ['p','c','f']){
+      let label = KEY_RE[field].exec(text), compactMatch = false;
+      if (!label){ label = KEY_RE[field].exec(compactText); compactMatch = Boolean(label); }
+      if (!label) continue;
+      const firstSpan = spans.find(span => compactMatch ? span.compactEnd > label.index : span.end > label.index);
+      const lastSpan = spans.find(span => compactMatch
+        ? span.compactEnd >= label.index + label[0].length
+        : span.end >= label.index + label[0].length);
+      if (!firstSpan || !lastSpan) continue;
+      if (skip && skip.index <= firstSpan.start) continue;
+      labels.push({ field, textStart:label.index, textEnd:label.index + label[0].length,
+        x0:firstSpan.word.x0, x1:lastSpan.word.x1 });
+    }
+    if (ENERGY_RE.test(text)){
+      const energy = parseNutrition(text);
+      if (energy.kcal != null) out.kcal = energy.kcal;
+    }
+    const values = row.words.map(word => ({ word, value:firstNumber(word.text) }))
+      .filter(item => item.value != null && item.value >= 0 && item.value <= 100);
+    wordTable.push({ center:row.center, text, labels, words:row.words, spans });
+    valueTable.push({ center:row.center, values });
+  }
+
+  const imageWidth = data.imageSize && Number.isFinite(data.imageSize.width)
+    ? data.imageSize.width
+    : Math.max(...words.map(word => word.x1));
+  const labelRows = wordTable.flatMap((row, index) =>
+    row.labels.map(label => ({ ...label, rowIndex:index, center:row.center }))
+  );
+  if (labelRows.length){
+    const numericColumnPositions = [];
+    for (const label of labelRows){
+      const row = wordTable[label.rowIndex];
+      for (const item of valueTable[label.rowIndex].values){
+        if (item.word.x0 > label.x1 && item.word.x0 < label.x1 + imageWidth * 0.75)
+          numericColumnPositions.push(item.word.x0);
+      }
+    }
+    const columnTolerance = Math.max(8, imageWidth * 0.045);
+    const columns = [];
+    for (const x of numericColumnPositions.sort((a, b) => a - b)){
+      let column = columns.find(item => Math.abs(item.center - x) <= columnTolerance);
+      if (!column){ column = { center:x, count:0 }; columns.push(column); }
+      column.center = (column.center * column.count + x) / (column.count + 1);
+      column.count++;
+    }
+
+    let preferredColumn = columns[0] || null;
+    for (const row of wordTable){
+      for (let i = 0; i < row.words.length; i++){
+        const headerWord = row.words[i].text.toLowerCase().replace(/\s/g, '');
+        let headerCenter;
+        if (/^100(?:g|ml)$/.test(headerWord)) headerCenter = (row.words[i].x0 + row.words[i].x1) / 2;
+        else if (headerWord === '100' && row.words[i + 1] && /^(?:g|ml)$/i.test(row.words[i + 1].text))
+          headerCenter = (row.words[i].x0 + row.words[i + 1].x1) / 2;
+        else continue;
+        const headerColumn = columns.slice().sort((a, b) =>
+          Math.abs(a.center - headerCenter) - Math.abs(b.center - headerCenter)
+        )[0];
+        if (headerColumn) preferredColumn = headerColumn;
+      }
+    }
+
+    const assigned = { p:null, c:null, f:null };
+    const assignedFields = new Set();
+    for (const label of labelRows.sort((a, b) => a.center - b.center || a.x0 - b.x0)){
+      assignedFields.add(label.field);
+      const row = valueTable[label.rowIndex];
+      const nextLabel = labelRows.find(other => other.rowIndex === label.rowIndex && other.x0 > label.x1);
+      const wordRow = wordTable[label.rowIndex];
+      const skip = SKIP_RE.exec(wordRow.text);
+      const skipSpan = skip && wordRow.spans.find(span => span.end > skip.index);
+      const candidates = row.values.filter(item =>
+        item.word.x0 >= label.x1 - columnTolerance &&
+        (!nextLabel || item.word.x0 < nextLabel.x0) &&
+        (!skipSpan || item.word.x0 < skipSpan.word.x0)
+      );
+      if (!candidates.length) continue;
+      let selected;
+      if (preferredColumn){
+        selected = candidates.slice().sort((a, b) =>
+          Math.abs(a.word.x0 - preferredColumn.center) - Math.abs(b.word.x0 - preferredColumn.center)
+        )[0];
+      } else selected = candidates[0];
+      if (assigned[label.field] == null) assigned[label.field] = selected.value;
+    }
+    for (const field of assignedFields) out[field] = assigned[field];
+  }
+  out.found = ['kcal','p','c','f'].filter(key => out[key] != null).length;
+  return out;
+}
+
 /* ---------------- OCR: run ---------------- */
 function loadTesseract(){
   if (window.Tesseract) return Promise.resolve(window.Tesseract);
@@ -259,7 +399,7 @@ async function scanFile(file){
         await guard(worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' }));
         const { data } = await guard(worker.recognize(image));
         const text = data.text || '';
-        const result = { data, image, text, parsed:parseNutrition(text) };
+        const result = { data, image, text, parsed:parseNutritionTable(data, text) };
         results.push(result);
         return result;
       };
