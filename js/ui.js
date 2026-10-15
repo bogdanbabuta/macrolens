@@ -144,7 +144,10 @@ function saveGymWorkout(){
 
 /* ---------------- water ---------------- */
 const waterGlass = () => S.waterCfg.glass > 0 ? S.waterCfg.glass : 250;
-const waterGoal  = () => S.waterCfg.goal > 0 ? S.waterCfg.goal : (S.profile ? Math.max(1000, Math.round(S.profile.weight * 35 / 50) * 50) : 2000);
+const waterGoal  = () => {
+  const base = S.waterCfg.goal > 0 ? S.waterCfg.goal : (S.profile ? Math.max(1000, Math.round(S.profile.weight * 35 / 50) * 50) : 2000);
+  return base + (S.waterCfg.creatine ? 250 : 0);
+};
 const fmtL = ml => String(Math.round(ml / 10) / 100);
 function renderWater(){
   const cur = S.water[S.date] || 0, goal = waterGoal();
