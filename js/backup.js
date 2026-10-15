@@ -23,7 +23,7 @@ async function importData(file){
     S.water = d.water || {}; S.waterCfg = d.waterCfg || {};
     saveProfile(); saveLogs(); saveFoods(); store.set(K.water, S.water); store.set(K.waterCfg, S.waterCfg);
     if (!S.profile) store.del(K.profile);
-    fillProfileForm(); toast('Backup restored'); setView('today');
+    fillProfileForm(); fillCreatineForm(); renderWater(); toast('Backup restored'); setView('today');
   } catch(e){ toast('That file isn’t a MacroLens backup'); }
 }
 function eraseAll(){
@@ -33,6 +33,7 @@ function eraseAll(){
   S.profile = null; S.logs = {}; S.foods = []; S.water = {}; S.waterCfg = {}; S.currentFoodId = null;
   $('#targetsCard').hidden = true;
   ['pAge','pWeight','pHeight'].forEach(id => $('#' + id).value = '');
+  fillCreatineForm();
   resetForm(); toast('All data erased'); setView('profile');
 }
 

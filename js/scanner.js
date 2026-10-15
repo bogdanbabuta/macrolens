@@ -288,6 +288,8 @@ function loadTesseract(){
 }
 
 let scanBusy = false, previewUrl = null;
+let ocrWorker = null, ocrWorkerPromise = null, ocrWorkerLang = null;
+let activeOcrFailure = null, activeOcrLogger = null;
 function setStatus(msg, cls = '', html = false){
   const s = $('#scanStatus'); s.className = 'status ' + cls;
   if (html) s.innerHTML = msg; else s.textContent = msg;
@@ -365,6 +367,42 @@ function nutritionScore(result){
   return score;
 }
 
+async function getOcrWorker(T, lang, isCancelled){
+  if (ocrWorker && ocrWorkerLang === lang) return ocrWorker;
+  if (ocrWorker){
+    const previous = ocrWorker;
+    ocrWorker = null; ocrWorkerLang = null;
+    await previous.terminate();
+  }
+  if (ocrWorkerPromise) return ocrWorkerPromise;
+  const pending = T.createWorker(lang, 1, {
+    errorHandler: e => {
+      if (activeOcrFailure) activeOcrFailure(e instanceof Error ? e : new Error(String(e && e.message || e)));
+    },
+    logger: m => { if (activeOcrLogger) activeOcrLogger(m); }
+  }).then(async worker => {
+    if (isCancelled()){
+      await worker.terminate();
+      throw new Error('The scan was cancelled while the OCR engine was loading.');
+    }
+    ocrWorker = worker;
+    ocrWorkerLang = lang;
+    return worker;
+  });
+  ocrWorkerPromise = pending;
+  try {
+    return await pending;
+  } finally {
+    if (ocrWorkerPromise === pending) ocrWorkerPromise = null;
+  }
+}
+
+async function discardOcrWorker(){
+  const worker = ocrWorker;
+  ocrWorker = null; ocrWorkerLang = null;
+  if (worker) await worker.terminate();
+}
+
 async function scanFile(file){
   if (!file || scanBusy) return;
   scanBusy = true;
@@ -373,31 +411,41 @@ async function scanFile(file){
   previewUrl = URL.createObjectURL(file);
   $('#previewImg').src = previewUrl; $('#preview').hidden = false; $('#rawBox').hidden = true;
   setProgress(0); setStatus('Preparing image…');
-  let worker = null;
+  let worker = null, workerFailed = false;
   try {
     const cv = await prepareImage(file);
     setStatus('Loading OCR engine… (the first scan in each language downloads a few MB)');
     const T = await loadTesseract();
-    // Tesseract may fail inside its worker without rejecting, so route worker errors and the watchdog through one promise.
-    let fail; const failed = new Promise((_, rej) => { fail = rej; }); failed.catch(() => {});
-    const watchdog = setTimeout(() => fail(new Error('The scan took too long')), 180000);
+    let fail;
+    const failed = new Promise((_, rej) => { fail = rej; });
+    failed.catch(() => {});
+    const reportFailure = error => {
+      workerFailed = true;
+      fail(error);
+    };
+    const watchdog = setTimeout(() => reportFailure(new Error('The scan took too long')), 180000);
     const guard = p => Promise.race([p, failed]);
     let best;
+    activeOcrFailure = reportFailure;
+    activeOcrLogger = m => {
+      if (!m || !m.status) return;
+      if (m.status === 'recognizing text'){ setProgress(0.12 + m.progress * 0.72); setStatus(`Reading label… ${Math.round(m.progress * 100)}%`); }
+      else if (/language/.test(m.status)){ setProgress(0.03 + m.progress * 0.08); setStatus('Downloading language data (first time only)…'); }
+      else if (/core/.test(m.status)) setStatus('Loading OCR engine…');
+    };
     try {
-      worker = await guard(T.createWorker(S.scanLang, 1, {
-        errorHandler: e => fail(e instanceof Error ? e : new Error(String(e && e.message || e))),
-        logger: m => {
-          if (!m || !m.status) return;
-          if (m.status === 'recognizing text'){ setProgress(0.12 + m.progress * 0.72); setStatus(`Reading label… ${Math.round(m.progress * 100)}%`); }
-          else if (/language/.test(m.status)){ setProgress(0.03 + m.progress * 0.08); setStatus('Downloading language data (first time only)…'); }
-          else if (/core/.test(m.status)) setStatus('Loading OCR engine…');
-        }
-      }));
+      worker = await guard(getOcrWorker(T, S.scanLang, () => workerFailed));
 
       const results = [];
       const pass = async (image, psm) => {
-        await guard(worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' }));
-        const { data } = await guard(worker.recognize(image));
+        let data;
+        try {
+          await guard(worker.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: '1' }));
+          ({ data } = await guard(worker.recognize(image)));
+        } catch (err){
+          if (!workerFailed) reportFailure(err);
+          throw err;
+        }
         const text = data.text || '';
         const result = { data, image, text, parsed:parseNutritionTable(data, text) };
         results.push(result);
@@ -435,7 +483,10 @@ async function scanFile(file){
       } else if (zoomedText.length){
         best.text = [best.text, ...zoomedText].filter(Boolean).join('\n\n');
       }
-    } finally { clearTimeout(watchdog); }
+    } finally {
+      clearTimeout(watchdog);
+      activeOcrFailure = null; activeOcrLogger = null;
+    }
     setProgress(1);
     $('#rawText').textContent = best.text.trim() || '(nothing recognised)';
     $('#rawBox').hidden = false;
@@ -445,7 +496,10 @@ async function scanFile(file){
     setProgress(null);
     setStatus((err && err.message ? err.message : 'Scan failed') + ' — you can still type the values in below.', 'err');
   } finally {
-    if (worker) try { await worker.terminate(); } catch(e){}
+    if (workerFailed){
+      try { await discardOcrWorker(); }
+      catch (err){ console.error('Could not reset the OCR worker', err); }
+    }
     scanBusy = false;
     $$('[data-action=pickCamera],[data-action=pickUpload]').forEach(b => b.disabled = false);
     setTimeout(() => setProgress(null), 600);

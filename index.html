@@ -448,6 +448,17 @@ details.raw pre{white-space:pre-wrap;word-break:break-word;background:var(--card
         <option value="very">Very active (6–7 days/week)</option>
       </select>
     </div>
+    <div class="field">
+      <label class="switch-row" for="pCreatineOn">
+        <span>Do you take creatine?</span>
+        <span class="switch"><input type="checkbox" id="pCreatineOn"><i></i></span>
+      </label>
+      <div class="field" id="pCreatineFields" hidden>
+        <label for="pCreatineG">Creatine per day</label>
+        <div class="unit-in"><input type="text" id="pCreatineG" inputmode="decimal" placeholder="e.g. 5" autocomplete="off"><em>g</em></div>
+      </div>
+      <p class="hint" style="margin-bottom:0">Saved for reference only. Creatine intake does not automatically change your water goal.</p>
+    </div>
   </div>
 
   <div class="card">
@@ -526,7 +537,7 @@ details.raw pre{white-space:pre-wrap;word-break:break-word;background:var(--card
     <div><label for="wGlass">Glass size</label><div class="unit-in"><input type="text" id="wGlass" inputmode="numeric" placeholder="250" autocomplete="off"><em>ml</em></div></div>
     <div><label for="wGoalIn">Daily goal</label><div class="unit-in"><input type="text" id="wGoalIn" inputmode="numeric" placeholder="auto" autocomplete="off"><em>ml</em></div></div>
   </div>
-  <p class="hint" style="margin-top:0">Leave the goal empty to use 35 ml per kg of your weight (2000 ml if there's no profile yet).</p>
+  <p class="hint" style="margin-top:0">Leave the goal empty to use a rough estimate of 35 ml per kg of your weight (2000 ml if there's no profile yet). This is only a guide; fluid needs vary with activity, weather, diet and health. Creatine does not automatically add water to this estimate.</p>
   <div class="btns">
     <button class="btn primary" data-action="saveWater">Save</button>
     <button class="btn secondary" data-action="closeSheet">Cancel</button>

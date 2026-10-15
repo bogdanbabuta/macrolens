@@ -95,7 +95,10 @@ function openWaterSheet(){
 }
 function saveWaterSheet(){
   const n = id => { const v = num($('#' + id).value); return isNaN(v) ? 0 : Math.max(0, Math.round(v)); };
-  S.waterCfg = { glass: clamp(n('wGlass'), 0, 2000) || 0, goal: clamp(n('wGoalIn'), 0, 10000) || 0 };
+  S.waterCfg = Object.assign({}, S.waterCfg, {
+    glass: clamp(n('wGlass'), 0, 2000) || 0,
+    goal: clamp(n('wGoalIn'), 0, 10000) || 0
+  });
   store.set(K.waterCfg, S.waterCfg);
   setWater(clamp(n('wToday'), 0, 20000));
   closeSheet();
@@ -294,6 +297,11 @@ function fillProfileForm(){
   setSeg('gender', p.gender); setSeg('goal', p.goal); $('#pActivity').value = p.activity;
   showTargets();
 }
+function fillCreatineForm(){
+  $('#pCreatineOn').checked = S.waterCfg.creatine === true;
+  $('#pCreatineG').value = S.waterCfg.creatineGrams || '';
+  $('#pCreatineFields').hidden = !$('#pCreatineOn').checked;
+}
 function showTargets(){
   const p = S.profile; if (!p || !p.targets) return;
   $('#targetsCard').hidden = false;
@@ -311,8 +319,15 @@ function calcProfile(){
   if (!(p.weight >= 30 && p.weight <= 300)) return toast('Enter a weight between 30 and 300 kg');
   if (!(p.height >= 100 && p.height <= 250)) return toast('Enter a height between 100 and 250 cm');
   const r = calcTargets(p);
+  const grams = num($('#pCreatineG').value);
+  S.waterCfg = Object.assign({}, S.waterCfg, {
+    creatine: $('#pCreatineOn').checked,
+    creatineGrams: Number.isFinite(grams) ? Math.round(clamp(grams, 0, 100) * 10) / 10 : 0
+  });
+  store.set(K.waterCfg, S.waterCfg);
   S.profile = Object.assign(p, { bmr:r.bmr, tdee:r.tdee, floored:r.floored, targets:r.targets });
   saveProfile(); showTargets();
+  renderWater();
   $('#welcomeTip').hidden = true;
   toast('Targets saved');
   $('#targetsCard').scrollIntoView({ behavior:'smooth', block:'start' });

@@ -48,6 +48,7 @@ document.addEventListener('click', e => {
 ['fQty','fName'].forEach(id => $('#' + id).addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); }));
 $('#foodSearch').addEventListener('input', renderFoods);
 $('#scanLang').addEventListener('change', e => { S.scanLang = e.target.value; store.set(K.lang, S.scanLang); });
+$('#pCreatineOn').addEventListener('change', e => { $('#pCreatineFields').hidden = !e.target.checked; });
 $('#fileCam').addEventListener('change', e => scanFile(e.target.files[0]));
 $('#fileUp').addEventListener('change', e => scanFile(e.target.files[0]));
 $('#fileImport').addEventListener('change', e => importData(e.target.files[0]));
@@ -95,6 +96,7 @@ function init(){
   S.foods   = store.get(K.foods, []);
   S.water   = store.get(K.water, {});
   S.waterCfg = store.get(K.waterCfg, {});
+  fillCreatineForm();
   const savedLang = store.get(K.lang, 'ron');
   buildMacroRows();
   fillProfileForm();
