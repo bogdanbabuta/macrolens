@@ -84,6 +84,12 @@ button{cursor:pointer;border:0;background:none;padding:0}
 .bar span{display:block;height:100%;width:0;border-radius:6px;transition:width .7s cubic-bezier(.2,.8,.2,1),background .3s}
 .msub{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-top:5px;font-variant-numeric:tabular-nums}
 .msub .neg{color:var(--red)}
+.food-log-toggle{width:100%;display:flex;justify-content:space-between;align-items:center;margin-top:18px;padding:12px 14px;border-radius:12px;background:var(--card2);text-align:left;font-weight:700}
+.food-log-toggle span:last-child{color:var(--muted);font-size:13px;font-weight:500}
+.food-log-content{margin-top:12px}
+.food-log-head{display:flex;justify-content:space-between;align-items:center;margin:0 4px 10px}
+.food-log-head h2{margin:0;font-size:18px;font-weight:700}
+.food-log-head .link{margin:0}
 
 /* ---------- water (compact) ---------- */
 .water{padding:12px 14px 13px}
@@ -101,6 +107,32 @@ button{cursor:pointer;border:0;background:none;padding:0}
 .water .bar span{background:#5ac8fa}
 .water.done .bar span{background:var(--accent)}
 .water.done .w-info svg{color:var(--accent)}
+
+/* ---------- gym calendar ---------- */
+.gym-card{padding:14px}
+.gym-top,.gym-month{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.gym-top{margin-bottom:14px}
+.gym-top h2{margin:0;font-size:17px;font-weight:700}
+.gym-toggle{min-height:40px;padding:0 14px;border-radius:12px;background:var(--card2);font-weight:700}
+.gym-toggle.done{background:rgba(48,209,88,.16);color:var(--accent)}
+.gym-workout{display:grid;grid-template-columns:1fr auto;gap:8px;margin-bottom:12px}
+.gym-workout input{min-width:0}
+.gym-workout .btn{width:auto;min-height:44px;padding:0 14px;font-size:14px;border-radius:12px}
+.gym-selected-date{font-size:13px;color:var(--muted);margin:-4px 0 10px}
+.gym-month{margin-bottom:12px}
+.gym-month strong{font-size:15px}
+.gym-count{font-size:13px;color:var(--muted)}
+.gym-month button{width:34px;height:34px;border-radius:50%;background:var(--card2);font-size:20px;line-height:1}
+.gym-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;text-align:center}
+.gym-weekday{font-size:11px;color:var(--muted);padding:3px 0}
+.gym-day,.gym-empty{height:42px}
+.gym-day{position:relative;border-radius:10px;background:var(--card2);font-size:13px}
+.gym-day.today{outline:1px solid var(--accent)}
+.gym-day.selected{box-shadow:inset 0 0 0 2px #fff}
+.gym-day.attended{background:rgba(48,209,88,.2);color:var(--accent);font-weight:700}
+.gym-day.attended:not(.has-name)::after{content:"";position:absolute;bottom:4px;left:50%;width:4px;height:4px;border-radius:50%;background:currentColor;transform:translateX(-50%)}
+.gym-day-name{position:absolute;left:2px;right:2px;bottom:2px;font-size:8px;line-height:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gym-day:disabled{opacity:.3}
 
 /* ---------- log list ---------- */
 .listhead{display:flex;justify-content:space-between;align-items:center;margin:22px 4px 10px}
@@ -281,6 +313,21 @@ details.raw pre{white-space:pre-wrap;word-break:break-word;background:var(--card
       </div>
     </div>
     <div class="macros" id="macros"></div>
+    <button class="food-log-toggle" id="foodLogToggle" data-action="toggleFoodLog" aria-expanded="false" aria-controls="foodLogContent">
+      <span id="foodLogLabel">Food log</span><span id="foodLogCount">0 items⌄</span>
+    </button>
+    <div class="food-log-content" id="foodLogContent" hidden>
+      <div class="food-log-head">
+        <h2>Food log</h2>
+        <button class="link danger" data-action="clearDay" id="clearBtn" hidden>Clear day</button>
+      </div>
+      <ul class="list" id="logList"></ul>
+      <div class="empty" id="emptyLog">
+        <div class="big">🍽️</div>
+        Nothing logged yet.<br>Tap <b>Add</b> to scan a label, use a saved food, or type in your own.
+        <div style="margin-top:14px"><button class="head-btn" data-tab="add">Add food</button></div>
+      </div>
+    </div>
   </div>
 
   <div class="card water" id="waterCard">
@@ -298,16 +345,28 @@ details.raw pre{white-space:pre-wrap;word-break:break-word;background:var(--card
     <div class="bar"><span id="wBar"></span></div>
   </div>
 
-  <div class="listhead">
-    <h2>Food log</h2>
-    <button class="link danger" data-action="clearDay" id="clearBtn" hidden>Clear day</button>
+  <div class="card gym-card">
+    <div class="gym-top">
+      <h2>Gym</h2>
+      <button class="gym-toggle" id="gymToggle" data-action="toggleGym">I went today</button>
+    </div>
+    <div class="gym-month">
+      <button data-action="prevGymMonth" aria-label="Previous month">‹</button>
+      <div style="text-align:center">
+        <strong id="gymMonthLabel"></strong>
+        <div class="gym-count" id="gymCount"></div>
+      </div>
+      <button data-action="nextGymMonth" id="nextGymMonthBtn" aria-label="Next month">›</button>
+    </div>
+    <div class="gym-selected-date" id="gymSelectedDate"></div>
+    <div class="gym-workout">
+      <input type="text" id="gymWorkoutName" maxlength="60" placeholder="Workout name (e.g. Push, Pull)" autocomplete="off" aria-label="Workout name">
+      <button class="btn primary" data-action="saveGymWorkout">Save workout</button>
+    </div>
+    <div class="gym-grid gym-weekdays" aria-hidden="true"></div>
+    <div class="gym-grid" id="gymCalendar" aria-label="Gym attendance calendar"></div>
   </div>
-  <ul class="list" id="logList"></ul>
-  <div class="empty" id="emptyLog">
-    <div class="big">🍽️</div>
-    Nothing logged yet.<br>Tap <b>Add</b> to scan a label, use a saved food, or type in your own.
-    <div style="margin-top:14px"><button class="head-btn" data-tab="add">Add food</button></div>
-  </div>
+
 </section>
 
 <!-- ====================== ADD / SCAN ====================== -->

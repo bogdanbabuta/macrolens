@@ -3,6 +3,12 @@
 const ACTIONS = {
   prevDay(){ S.date = shiftKey(S.date, -1); renderToday(); },
   nextDay(){ if (S.date < todayKey()){ S.date = shiftKey(S.date, 1); renderToday(); } },
+  prevGymMonth(){ const [y,m] = S.gymMonth.split('-').map(Number); S.gymMonth = gymMonthKey(new Date(y, m - 2, 1)); renderGymCalendar(); },
+  nextGymMonth(){ const [y,m] = S.gymMonth.split('-').map(Number); const next = gymMonthKey(new Date(y, m, 1)); if (next <= todayKey().slice(0, 7)){ S.gymMonth = next; renderGymCalendar(); } },
+  toggleGym(){ toggleGymDay(S.gymSelectedDate); },
+  selectGymDate(el){ selectGymDate(el.dataset.date); },
+  saveGymWorkout,
+  toggleFoodLog,
   clearDay, dismissTip(){ store.set(K.tip, true); $('#installTip').hidden = true; },
   delEntry(el){ deleteEntry(el.dataset.id); },
   pickCamera(){ $('#fileCam').value = ''; $('#fileCam').click(); },
@@ -58,6 +64,7 @@ $('#fileImport').addEventListener('change', e => importData(e.target.files[0]));
 function checkDayRollover(){
   const t = todayKey();
   if (t !== S.lastToday){
+    if (S.gymMonth === S.lastToday.slice(0, 7)) S.gymMonth = t.slice(0, 7);
     if (S.date === S.lastToday) S.date = t;
     S.lastToday = t;
     if (S.view === 'today') renderToday();
@@ -96,6 +103,7 @@ function init(){
   S.foods   = store.get(K.foods, []);
   S.water   = store.get(K.water, {});
   S.waterCfg = store.get(K.waterCfg, {});
+  S.gymDays = store.get(K.gym, {});
   fillCreatineForm();
   const savedLang = store.get(K.lang, 'ron');
   buildMacroRows();

@@ -53,6 +53,10 @@ function renderToday(){
 
   // list
   const list = entriesOf(k);
+  $('#foodLogContent').hidden = !S.foodLogOpen;
+  $('#foodLogToggle').setAttribute('aria-expanded', String(S.foodLogOpen));
+  $('#foodLogCount').textContent = `${list.length} ${list.length === 1 ? 'item' : 'items'} ${S.foodLogOpen ? '⌃' : '⌄'}`;
+  $('#foodLogLabel').textContent = 'Food log';
   $('#emptyLog').hidden = list.length > 0;
   $('#clearBtn').hidden = list.length === 0;
   $('#logList').innerHTML = list.slice().reverse().map(e => `
@@ -68,6 +72,74 @@ function renderToday(){
       </button>
     </li>`).join('');
   renderWater();
+  renderGymCalendar();
+}
+
+function toggleFoodLog(){
+  S.foodLogOpen = !S.foodLogOpen;
+  renderToday();
+}
+
+/* ---------------- gym attendance ---------------- */
+const gymMonthKey = date => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
+function renderGymCalendar(){
+  const [year, month] = S.gymMonth.split('-').map(Number);
+  const first = new Date(year, month - 1, 1);
+  const days = new Date(year, month, 0).getDate();
+  const offset = first.getDay();
+  const today = todayKey();
+  const monthKey = S.gymMonth;
+  const count = Object.keys(S.gymDays).filter(key => key.startsWith(monthKey + '-') && S.gymDays[key] && key <= today).length;
+  const selectedDate = parseKey(S.gymSelectedDate);
+
+  $('#gymMonthLabel').textContent = first.toLocaleDateString(undefined, { month:'long', year:'numeric' });
+  $('#gymCount').textContent = `${count} ${count === 1 ? 'visit' : 'visits'} this month`;
+  $('#nextGymMonthBtn').disabled = monthKey >= today.slice(0, 7);
+  $('#gymSelectedDate').textContent = selectedDate.toLocaleDateString(undefined, { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+  $('#gymWorkoutName').value = typeof S.gymDays[S.gymSelectedDate] === 'string' ? S.gymDays[S.gymSelectedDate] : '';
+  $('#gymToggle').textContent = S.gymDays[S.gymSelectedDate] ? 'Gym visit logged' : (S.gymSelectedDate === today ? 'I went today' : 'Mark gym visit');
+  $('#gymToggle').classList.toggle('done', !!S.gymDays[S.gymSelectedDate]);
+  $('#gymToggle').setAttribute('aria-pressed', String(!!S.gymDays[S.gymSelectedDate]));
+  $('.gym-weekdays').innerHTML = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(day => `<span class="gym-weekday">${day}</span>`).join('');
+
+  const cells = Array(offset).fill('<span class="gym-empty" aria-hidden="true"></span>');
+  for (let day = 1; day <= days; day++){
+    const key = `${monthKey}-${pad2(day)}`;
+    const workout = S.gymDays[key];
+    const attended = !!workout;
+    const date = new Date(year, month - 1, day);
+    const label = date.toLocaleDateString(undefined, { month:'long', day:'numeric' });
+    const classes = ['gym-day', attended ? 'attended' : '', typeof workout === 'string' ? 'has-name' : '', key === today ? 'today' : '', key === S.gymSelectedDate ? 'selected' : ''].filter(Boolean).join(' ');
+    const description = typeof workout === 'string' ? `, ${esc(workout)}` : attended ? ', gym visit logged' : '';
+    const name = typeof workout === 'string' ? `<small class="gym-day-name">${esc(workout)}</small>` : '';
+    const title = typeof workout === 'string' ? ` title="${esc(workout)}"` : '';
+    cells.push(`<button class="${classes}" data-action="selectGymDate" data-date="${key}" aria-label="${label}${description}" aria-pressed="${key === S.gymSelectedDate}"${title}${key > today ? ' disabled' : ''}>${day}${name}</button>`);
+  }
+  $('#gymCalendar').innerHTML = cells.join('');
+}
+function toggleGymDay(key){
+  if (key > todayKey()) return;
+  if (S.gymDays[key]) delete S.gymDays[key];
+  else S.gymDays[key] = true;
+  S.gymMonth = key.slice(0, 7);
+  store.set(K.gym, S.gymDays);
+  renderGymCalendar();
+}
+function selectGymDate(key){
+  if (key > todayKey()) return;
+  S.gymSelectedDate = key;
+  S.gymMonth = key.slice(0, 7);
+  renderGymCalendar();
+}
+function saveGymWorkout(){
+  const name = $('#gymWorkoutName').value.trim();
+  if (!name) return toast('Enter a workout name');
+  if (S.gymSelectedDate > todayKey()) return;
+  S.gymDays[S.gymSelectedDate] = name;
+  S.gymMonth = S.gymSelectedDate.slice(0, 7);
+  store.set(K.gym, S.gymDays);
+  renderGymCalendar();
+  toast('Workout saved');
 }
 
 /* ---------------- water ---------------- */
